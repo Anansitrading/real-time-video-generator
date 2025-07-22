@@ -19,23 +19,53 @@ export function useChatSessions() {
 
   // Load user's chat sessions
   const loadSessions = useCallback(async () => {
-    if (!user) return
+    if (!user) {
+      console.log('No user, skipping session load')
+      return
+    }
 
     try {
       const { data, error } = await supabase.functions.invoke('chat-session-manager', {
         body: { action: 'get_sessions' }
       })
 
-      if (error) throw error
-      setSessions(data.data || [])
+      if (error) {
+        console.error('Session loading error:', error)
+        throw new Error(error.message || 'Failed to load chat sessions')
+      }
+
+      if (!data || !data.data) {
+        console.warn('No session data received')
+        setSessions([])
+        return
+      }
+
+      setSessions(data.data)
+      console.log(`Loaded ${data.data.length} chat sessions`)
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading sessions:', error)
+      setSessions([])
+      
+      // Provide user feedback for network or auth issues
+      if (error.message?.includes('unauthorized') || error.message?.includes('forbidden')) {
+        toast.error('Session access denied. Please sign in again.')
+      } else if (error.message?.includes('network') || error.message?.includes('fetch')) {
+        toast.error('Network error loading sessions. Please check your connection.')
+      } else {
+        toast.error('Failed to load chat sessions. Please refresh the page.')
+      }
     }
   }, [user, setSessions])
 
   // Load messages for current session
   const loadMessages = useCallback(async (sessionId: string) => {
+    if (!sessionId) {
+      console.warn('No session ID provided for message loading')
+      setMessages([])
+      return
+    }
+
     try {
       const { data, error } = await supabase.functions.invoke('chat-session-manager', {
         body: { 
@@ -44,12 +74,23 @@ export function useChatSessions() {
         }
       })
 
-      if (error) throw error
-      setMessages(data.data || [])
+      if (error) {
+        console.error('Message loading error:', error)
+        throw new Error(error.message || 'Failed to load messages')
+      }
+
+      const messages = data?.data || []
+      setMessages(messages)
+      console.log(`Loaded ${messages.length} messages for session ${sessionId}`)
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading messages:', error)
       setMessages([])
+      
+      // Only show toast for unexpected errors, not normal empty states
+      if (!error.message?.includes('not found') && !error.message?.includes('no messages')) {
+        toast.error('Failed to load conversation history')
+      }
     }
   }, [setMessages])
 
@@ -74,66 +115,63 @@ export function useChatSessions() {
   }, [user, setVideos])
 
   // Create new chat session
-  const createSession = useCallback(async (title?: string, language: string = 'en') => {
-    if (!user) {
-      toast.error('Please sign in to create a session')
-      return null
-    }
+  const createSession = useCallback(async (title?: string, language = 'en-US') => {
+    if (!user) return null
 
     try {
       const { data, error } = await supabase.functions.invoke('chat-session-manager', {
         body: {
           action: 'create_session',
-          title: title || 'New Conversation',
-          language
+          sessionData: {
+            title: title || `Chat ${new Date().toLocaleDateString()}`,
+            language,
+            status: 'active'
+          }
         }
       })
 
       if (error) throw error
       
-      const newSession = data.data[0]
+      const newSession = data.data
+      setSessions(prev => [newSession, ...prev])
       setCurrentSession(newSession)
-      await loadSessions() // Refresh sessions list
+      setMessages([])
+      setVideos([])
       
-      toast.success('New conversation started')
       return newSession
       
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error creating session:', error)
-      toast.error(error.message || 'Failed to create session')
+      toast.error('Failed to create new conversation')
       return null
     }
-  }, [user, setCurrentSession, loadSessions])
+  }, [user, setSessions, setCurrentSession, setMessages, setVideos])
 
-  // Select a session
-  const selectSession = useCallback(async (session: ChatSession) => {
+  // Switch to a different session
+  const switchSession = useCallback(async (session: ChatSession) => {
     setCurrentSession(session)
-    await Promise.all([
-      loadMessages(session.id),
-      loadVideos(session.id)
-    ])
+    await loadMessages(session.id)
+    await loadVideos(session.id)
   }, [setCurrentSession, loadMessages, loadVideos])
 
-  // Add message to current session
-  const addMessageToSession = useCallback(async (content: string, role: 'user' | 'assistant' = 'user') => {
-    if (!currentSession) {
-      toast.error('No active session')
-      return null
+  // Send message to current session
+  const sendMessage = useCallback(async (content: string, audioUrl?: string) => {
+    if (!currentSession || !user) return null
+
+    const message: Message = {
+      id: crypto.randomUUID(),
+      session_id: currentSession.id,
+      role: 'user',
+      content,
+      audio_url: audioUrl,
+      created_at: new Date().toISOString(),
+      metadata: {}
     }
 
+    // Add to local state immediately
+    addMessage(message)
+
     try {
-      const message = {
-        id: crypto.randomUUID(),
-        session_id: currentSession.id,
-        role,
-        content,
-        created_at: new Date().toISOString(),
-        metadata: {}
-      }
-
-      // Add to local state immediately
-      addMessage(message)
-
       // Save to database
       const { error } = await supabase.functions.invoke('chat-session-manager', {
         body: {
@@ -146,71 +184,12 @@ export function useChatSessions() {
       if (error) throw error
       return message
       
-    } catch (error: any) {
-      console.error('Error adding message:', error)
-      toast.error(error.message || 'Failed to add message')
+    } catch (error) {
+      console.error('Error sending message:', error)
+      toast.error('Failed to send message')
       return null
     }
-  }, [currentSession, addMessage])
-
-  // Set up real-time subscriptions
-  useEffect(() => {
-    if (!user || !currentSession) return
-
-    // Subscribe to messages for current session
-    const messagesSubscription = supabase
-      .channel(`messages:${currentSession.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'messages',
-          filter: `session_id=eq.${currentSession.id}`
-        },
-        (payload) => {
-          const newMessage = payload.new as Message
-          addMessage(newMessage)
-        }
-      )
-      .subscribe()
-
-    // Subscribe to video updates for current session
-    const videosSubscription = supabase
-      .channel(`videos:${currentSession.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'videos',
-          filter: `session_id=eq.${currentSession.id}`
-        },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            const { addVideo } = useAppStore.getState()
-            addVideo(payload.new as Video)
-          } else if (payload.eventType === 'UPDATE') {
-            const { updateVideo } = useAppStore.getState()
-            const updated = payload.new as Video
-            updateVideo(updated.id, updated)
-            
-            // Show notification for completed videos
-            if (updated.status === 'completed' && updated.video_url) {
-              toast.success('🎥 Your video is ready!')
-            } else if (updated.status === 'failed') {
-              toast.error('❌ Video generation failed')
-            }
-          }
-        }
-      )
-      .subscribe()
-
-    return () => {
-      messagesSubscription.unsubscribe()
-      videosSubscription.unsubscribe()
-    }
-  }, [user, currentSession, addMessage])
+  }, [currentSession, user, addMessage])
 
   // Load sessions when user changes
   useEffect(() => {
@@ -225,13 +204,11 @@ export function useChatSessions() {
   }, [user, loadSessions, setSessions, setCurrentSession, setMessages, setVideos])
 
   return {
-    sessions,
-    currentSession,
-    messages,
-    videos,
+    loadSessions,
+    loadMessages,
+    loadVideos,
     createSession,
-    selectSession,
-    addMessageToSession,
-    loadSessions
+    switchSession,
+    sendMessage
   }
 }
