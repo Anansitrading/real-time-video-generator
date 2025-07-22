@@ -87,7 +87,7 @@ export function useChatSessions() {
         })
         if (error) throw error
         const newSession = data.data as ChatSession
-        setSessions((prev) => [newSession, ...prev])
+        setSessions([newSession, ...sessions])
         setCurrentSession(newSession)
         setMessages([])
         setVideos([])
@@ -98,7 +98,7 @@ export function useChatSessions() {
         return null
       }
     },
-    [user, setSessions, setCurrentSession, setMessages, setVideos]
+    [user, setSessions, setCurrentSession, setMessages, setVideos, sessions]
   )
 
   const addMessageToSession = useCallback(
