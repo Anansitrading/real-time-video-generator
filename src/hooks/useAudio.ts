@@ -24,17 +24,45 @@ export function useAudio() {
   const reconnectAttemptsRef = useRef(0)
   const maxReconnectAttempts = 10
 
-  // Initialize audio permissions
+  // Initialize audio permissions with browser compatibility checks
   useEffect(() => {
     const checkPermissions = async () => {
+      // Check if MediaDevices API is supported
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.warn('MediaDevices API not supported')
+        setAudioPermission(false)
+        toast.error('Voice features are not supported in this browser. Please use Chrome, Firefox, or Safari.')
+        return
+      }
+
+      // Check if AudioContext is supported
+      if (!window.AudioContext && !(window as any).webkitAudioContext) {
+        console.warn('AudioContext not supported')
+        setAudioPermission(false)
+        toast.error('Audio processing is not supported in this browser.')
+        return
+      }
+
       try {
+        // Test audio permission
         const permission = await navigator.mediaDevices.getUserMedia({ audio: true })
         setAudioPermission(true)
         permission.getTracks().forEach(track => track.stop())
-      } catch (error) {
+        console.log('Audio permissions granted')
+      } catch (error: any) {
         console.error('Audio permission denied:', error)
         setAudioPermission(false)
-        toast.error('Microphone access is required for voice features')
+        
+        // Provide specific error messages based on error type
+        if (error.name === 'NotAllowedError') {
+          toast.error('Microphone access denied. Please allow microphone access in your browser settings.')
+        } else if (error.name === 'NotFoundError') {
+          toast.error('No microphone found. Please check your audio devices.')
+        } else if (error.name === 'NotReadableError') {
+          toast.error('Microphone is being used by another application.')
+        } else {
+          toast.error(`Audio setup failed: ${error.message}`)
+        }
       }
     }
 
@@ -60,8 +88,8 @@ export function useAudio() {
       }
 
       const token = tokenData.data.token
-      // Use the correct Gemini Live WebSocket URL format
-      const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${token}`
+      // Use the correct Gemini Live WebSocket URL format for native audio dialog
+      const wsUrl = `wss://generativelanguage.googleapis.com/v1alpha/models/gemini-2.5-flash-preview-native-audio-dialog:streamGenerateContent?alt=sse&key=${token}`
       
       wsRef.current = new WebSocket(wsUrl)
       
@@ -83,22 +111,38 @@ export function useAudio() {
       
       wsRef.current.onerror = (error) => {
         console.error('Gemini WebSocket error:', error)
-        toast.error('Voice connection error')
+        
+        // Provide more specific error feedback
+        if (reconnectAttemptsRef.current === 0) {
+          toast.error('Voice connection failed. Retrying...')
+        } else if (reconnectAttemptsRef.current < maxReconnectAttempts / 2) {
+          toast.error(`Connection issues. Attempting to reconnect... (${reconnectAttemptsRef.current}/${maxReconnectAttempts})`)
+        }
       }
       
-      wsRef.current.onclose = () => {
-        console.log('Gemini WebSocket closed')
+      wsRef.current.onclose = (event) => {
+        console.log('Gemini WebSocket closed:', event.code, event.reason)
         setIsConnectedToGemini(false)
+        
+        // Don't retry if close was intentional
+        if (event.wasClean) {
+          console.log('WebSocket closed cleanly')
+          return
+        }
         
         // Attempt reconnection with exponential backoff
         if (reconnectAttemptsRef.current < maxReconnectAttempts) {
           const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000)
+          
+          console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current + 1}/${maxReconnectAttempts})`)
+          
           setTimeout(() => {
             reconnectAttemptsRef.current++
             connectToGemini()
           }, delay)
         } else {
-          toast.error('Lost connection to voice assistant')
+          toast.error('Unable to connect to voice assistant. Please check your internet connection and try again.')
+          reconnectAttemptsRef.current = 0 // Reset for future attempts
         }
       }
       
@@ -158,11 +202,24 @@ export function useAudio() {
 
   const startRecording = useCallback(async () => {
     if (!audioPermission) {
-      toast.error('Microphone permission required')
+      toast.error('Microphone permission required. Please enable microphone access.')
+      return
+    }
+
+    if (isRecording) {
+      console.log('Recording already in progress')
       return
     }
 
     try {
+      // Clean up any existing resources first
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop())
+      }
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        await audioContextRef.current.close()
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           sampleRate: AUDIO_CONFIG.sampleRate,
@@ -176,9 +233,24 @@ export function useAudio() {
       streamRef.current = stream
       audioChunksRef.current = []
 
+      // Check MediaRecorder support
+      const mimeTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/wav']
+      let supportedMimeType = ''
+      
+      for (const mimeType of mimeTypes) {
+        if (MediaRecorder.isTypeSupported(mimeType)) {
+          supportedMimeType = mimeType
+          break
+        }
+      }
+
+      if (!supportedMimeType) {
+        throw new Error('No supported audio format found')
+      }
+
       // Set up MediaRecorder
       mediaRecorderRef.current = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus'
+        mimeType: supportedMimeType
       })
 
       mediaRecorderRef.current.ondataavailable = (event) => {
@@ -191,55 +263,128 @@ export function useAudio() {
         handleRecordingStop()
       }
 
-      // Set up audio analysis for silence detection
-      audioContextRef.current = new AudioContext({ sampleRate: AUDIO_CONFIG.sampleRate })
-      const source = audioContextRef.current.createMediaStreamSource(stream)
-      analyserRef.current = audioContextRef.current.createAnalyser()
-      analyserRef.current.fftSize = 256
-      source.connect(analyserRef.current)
+      mediaRecorderRef.current.onerror = (event) => {
+        console.error('MediaRecorder error:', event)
+        toast.error('Recording error occurred')
+        stopRecording()
+      }
+
+      // Set up audio analysis for silence detection with fallback
+      try {
+        const AudioContext = window.AudioContext || (window as any).webkitAudioContext
+        audioContextRef.current = new AudioContext({ sampleRate: AUDIO_CONFIG.sampleRate })
+        
+        const source = audioContextRef.current.createMediaStreamSource(stream)
+        analyserRef.current = audioContextRef.current.createAnalyser()
+        analyserRef.current.fftSize = 256
+        source.connect(analyserRef.current)
+
+        // Start silence detection
+        startSilenceDetection()
+      } catch (audioContextError) {
+        console.warn('Audio analysis not available, using basic recording:', audioContextError)
+        // Continue without silence detection
+      }
 
       // Start recording
       mediaRecorderRef.current.start(100) // Collect data every 100ms
       setIsRecording(true)
-      
-      // Start silence detection
-      startSilenceDetection()
+      console.log(`Recording started with format: ${supportedMimeType}`)
       
       // Auto-stop after max time
       setTimeout(() => {
         if (isRecording) {
+          console.log('Auto-stopping recording after max time')
           stopRecording()
         }
       }, AUDIO_CONFIG.maxRecordingTime)
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to start recording:', error)
-      toast.error('Failed to start recording')
+      
+      // Provide specific error messages
+      if (error.name === 'NotAllowedError') {
+        toast.error('Microphone access denied. Please allow microphone access.')
+      } else if (error.name === 'NotFoundError') {
+        toast.error('No microphone found. Please check your audio devices.')
+      } else if (error.name === 'NotReadableError') {
+        toast.error('Microphone is busy. Please close other applications using the microphone.')
+      } else {
+        toast.error(`Recording failed: ${error.message}`)
+      }
+      
+      // Clean up on failure
+      setIsRecording(false)
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop())
+        streamRef.current = null
+      }
     }
   }, [audioPermission, isRecording, setIsRecording])
 
   const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop()
+    console.log('Stopping recording...')
+    
+    try {
+      if (mediaRecorderRef.current && isRecording) {
+        if (mediaRecorderRef.current.state === 'recording') {
+          mediaRecorderRef.current.stop()
+        }
+      }
       setIsRecording(false)
+    } catch (error) {
+      console.error('Error stopping MediaRecorder:', error)
     }
     
+    // Clear silence timer
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current)
       silenceTimerRef.current = null
     }
 
-    // Clean up streams
+    // Clean up media stream
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop())
+      streamRef.current.getTracks().forEach(track => {
+        track.stop()
+        console.log(`Stopped track: ${track.kind}`)
+      })
       streamRef.current = null
     }
 
-    if (audioContextRef.current) {
-      audioContextRef.current.close()
+    // Clean up audio context
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close().catch(error => {
+        console.error('Error closing AudioContext:', error)
+      })
       audioContextRef.current = null
     }
+
+    // Reset analyser
+    analyserRef.current = null
   }, [isRecording, setIsRecording])
+
+  // Cleanup effect for component unmount
+  useEffect(() => {
+    return () => {
+      console.log('Cleaning up audio hook...')
+      
+      // Clean up WebSocket
+      if (wsRef.current) {
+        wsRef.current.close()
+        wsRef.current = null
+      }
+      
+      // Stop recording if active
+      if (isRecording) {
+        stopRecording()
+      }
+      
+      // Clear any pending timers
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current)
+      }
+    }
+  }, []) // Empty dependency array for cleanup on unmount only
 
   const startSilenceDetection = useCallback(() => {
     if (!analyserRef.current) return
@@ -300,14 +445,37 @@ export function useAudio() {
   }, [])
 
   const sendAudioToGemini = useCallback((audioData: string) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      toast.error('Not connected to voice assistant')
+    if (!wsRef.current) {
+      toast.error('Voice assistant not initialized')
+      return
+    }
+
+    if (wsRef.current.readyState !== WebSocket.OPEN) {
+      if (wsRef.current.readyState === WebSocket.CONNECTING) {
+        toast.error('Still connecting to voice assistant, please wait...')
+      } else if (wsRef.current.readyState === WebSocket.CLOSING) {
+        toast.error('Voice assistant connection is closing')
+      } else {
+        toast.error('Voice assistant disconnected, attempting to reconnect...')
+        connectToGemini() // Attempt to reconnect
+      }
       return
     }
 
     try {
+      // Validate audio data format
+      if (!audioData || !audioData.includes(',')) {
+        throw new Error('Invalid audio data format')
+      }
+
       // Extract base64 data
       const base64Data = audioData.split(',')[1]
+      if (!base64Data) {
+        throw new Error('No audio data found')
+      }
+      
+      // Determine the correct MIME type based on the data URL
+      const mimeType = audioData.split(',')[0].split(':')[1].split(';')[0] || 'audio/webm;codecs=opus'
       
       const message = {
         clientContent: {
@@ -315,7 +483,7 @@ export function useAudio() {
             role: 'user',
             parts: [{
               inlineData: {
-                mimeType: 'audio/webm;codecs=opus',
+                mimeType,
                 data: base64Data
               }
             }]
@@ -324,14 +492,28 @@ export function useAudio() {
         }
       }
 
-      wsRef.current.send(JSON.stringify(message))
-      console.log('Audio sent to Gemini')
+      const messageString = JSON.stringify(message)
       
-    } catch (error) {
+      // Check message size (WebSocket has limits)
+      if (messageString.length > 1024 * 1024) { // 1MB limit
+        throw new Error('Audio message too large')
+      }
+
+      wsRef.current.send(messageString)
+      console.log(`Audio sent to Gemini (${(base64Data.length * 0.75 / 1024).toFixed(2)}KB, ${mimeType})`)
+      
+    } catch (error: any) {
       console.error('Error sending audio to Gemini:', error)
-      toast.error('Failed to send audio to AI')
+      
+      if (error.message.includes('Invalid audio data')) {
+        toast.error('Audio recording failed, please try again')
+      } else if (error.message.includes('too large')) {
+        toast.error('Audio message too long, please record shorter clips')
+      } else {
+        toast.error(`Failed to send audio: ${error.message}`)
+      }
     }
-  }, [])
+  }, [connectToGemini])
 
   return {
     isRecording,
