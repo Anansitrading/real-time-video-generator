@@ -4,14 +4,12 @@ import {
   Plus, 
   MessageCircle, 
   Video, 
-  Settings, 
-  LogOut,
+  Settings,
   X,
   Clock,
   User
 } from 'lucide-react'
 import { useAppStore } from '../../stores/appStore'
-import { useAuth } from '../../hooks/useAuth'
 import { useChatSessions } from '../../hooks/useChatSessions'
 import { Button } from '../ui/Button'
 import { formatDistanceToNow } from 'date-fns'
@@ -20,24 +18,12 @@ export function Sidebar() {
   const { 
     isSidebarOpen, 
     toggleSidebar, 
-    setSettingsOpen,
-    user,
-    profile
+    setSettingsOpen
   } = useAppStore()
-  const { signOut } = useAuth()
   const { sessions, currentSession, createSession, selectSession } = useChatSessions()
 
   const handleNewSession = async () => {
     await createSession()
-  }
-
-  const handleSignOut = async () => {
-    try {
-      await signOut()
-      toggleSidebar()
-    } catch (error) {
-      // Error handled in hook
-    }
   }
 
   return (
@@ -78,24 +64,22 @@ export function Sidebar() {
                 </button>
               </div>
 
-              {/* User Profile */}
-              {user && (
-                <div className="p-4 border-b border-gray-700">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
-                      <User className="w-5 h-5 text-white" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-white truncate">
-                        {profile?.full_name || 'User'}
-                      </p>
-                      <p className="text-xs text-gray-400 truncate">
-                        {user.email}
-                      </p>
-                    </div>
+              {/* Demo User Profile */}
+              <div className="p-4 border-b border-gray-700">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center">
+                    <User className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-white truncate">
+                      Demo User
+                    </p>
+                    <p className="text-xs text-gray-400 truncate">
+                      demo@videoai.com
+                    </p>
                   </div>
                 </div>
-              )}
+              </div>
 
               {/* New Session Button */}
               <div className="p-4">
@@ -168,17 +152,7 @@ export function Sidebar() {
                   <Settings className="w-4 h-4 mr-2" />
                   Settings
                 </Button>
-                
-                {user && (
-                  <Button
-                    onClick={handleSignOut}
-                    variant="ghost"
-                    className="w-full justify-start text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                  >
-                    <LogOut className="w-4 h-4 mr-2" />
-                    Sign Out
-                  </Button>
-                )}
+
               </div>
             </div>
           </motion.div>

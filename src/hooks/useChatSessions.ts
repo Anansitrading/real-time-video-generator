@@ -6,7 +6,6 @@ import { ChatSession, Message, Video } from '../lib/supabase'
 
 export function useChatSessions() {
   const {
-    user,
     currentSession,
     sessions,
     messages,
@@ -22,88 +21,74 @@ export function useChatSessions() {
   /* ─────────────────────────── LOADERS ─────────────────────────── */
 
   const loadSessions = useCallback(async () => {
-    if (!user) return
-    try {
-      const { data, error } = await supabase.functions.invoke('chat-session-manager', {
-        body: { action: 'get_sessions' },
-      })
-      if (error) throw error
-      setSessions(data.data as ChatSession[])
-    } catch (e: any) {
-      console.error(e)
-      toast.error('Could not fetch sessions')
-      setSessions([])
-    }
-  }, [user, setSessions])
+    // Demo mode - create mock sessions
+    const mockSessions: ChatSession[] = [
+      {
+        id: 'demo-1',
+        user_id: 'demo-user',
+        title: 'Welcome Chat',
+        language: 'en-US',
+        status: 'active',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        metadata: {}
+      }
+    ]
+    setSessions(mockSessions)
+  }, [setSessions])
 
   const loadMessages = useCallback(
     async (sessionId: string) => {
       if (!sessionId) return
-      try {
-        const { data, error } = await supabase.functions.invoke('chat-session-manager', {
-          body: { action: 'get_messages', sessionId },
-        })
-        if (error) throw error
-        setMessages(data.data as Message[])
-      } catch (e: any) {
-        console.error(e)
-        toast.error('Could not fetch messages')
-        setMessages([])
+      // Demo mode - start with welcome message
+      const welcomeMessage: Message = {
+        id: 'welcome-msg',
+        session_id: sessionId,
+        role: 'assistant',
+        content: 'Welcome to Video AI! I can help you create amazing videos through voice conversation. Try saying "Create a video of a sunset over mountains" to get started!',
+        created_at: new Date().toISOString(),
+        metadata: {}
       }
+      setMessages([welcomeMessage])
     },
     [setMessages]
   )
 
   const loadVideos = useCallback(
     async (sessionId: string) => {
-      if (!user) return
-      try {
-        const { data, error } = await supabase
-          .from('videos')
-          .select('*')
-          .eq('session_id', sessionId)
-          .order('created_at', { ascending: false })
-        if (error) throw error
-        setVideos(data as Video[])
-      } catch (e) {
-        console.error(e)
-        setVideos([])
-      }
+      // Demo mode - no videos initially
+      setVideos([])
     },
-    [user, setVideos]
+    [setVideos]
   )
 
   /* ──────────────────────── MUTATIONS ──────────────────────────── */
 
   const createSession = useCallback(
     async (title?: string, language = 'en-US') => {
-      if (!user) return null
-      try {
-        const { data, error } = await supabase.functions.invoke('chat-session-manager', {
-          body: {
-            action: 'create_session',
-            sessionData: { title: title || 'New conversation', language, status: 'active' },
-          },
-        })
-        if (error) throw error
-        const newSession = data.data as ChatSession
-        setSessions([newSession, ...sessions])
-        setCurrentSession(newSession)
-        setMessages([])
-        setVideos([])
-        return newSession
-      } catch (e) {
-        console.error(e)
-        toast.error('Could not create session')
-        return null
+      // Demo mode - create local session
+      const newSession: ChatSession = {
+        id: `demo-${Date.now()}`,
+        user_id: 'demo-user',
+        title: title || 'New conversation',
+        language,
+        status: 'active',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        metadata: {}
       }
+      setSessions([newSession, ...sessions])
+      setCurrentSession(newSession)
+      setMessages([])
+      setVideos([])
+      return newSession
     },
-    [user, setSessions, setCurrentSession, setMessages, setVideos, sessions]
+    [setSessions, setCurrentSession, setMessages, setVideos, sessions]
   )
 
   const addMessageToSession = useCallback(
     async (content: string, role: 'user' | 'assistant' = 'user', audioUrl?: string) => {
-      if (!currentSession || !user) return
+      if (!currentSession) return
       const message: Message = {
         id: crypto.randomUUID(),
         session_id: currentSession.id,
@@ -113,18 +98,24 @@ export function useChatSessions() {
         created_at: new Date().toISOString(),
         metadata: {},
       }
-      addMessage(message) // local optimistic update
-
-      try {
-        await supabase.functions.invoke('chat-session-manager', {
-          body: { action: 'add_message', sessionId: currentSession.id, messageData: message },
-        })
-      } catch (e) {
-        console.error(e)
-        toast.error('Message not saved – offline?')
+      addMessage(message) // local storage in demo mode
+      
+      // In demo mode, simulate AI response if it's a user message
+      if (role === 'user') {
+        setTimeout(() => {
+          const aiResponse: Message = {
+            id: crypto.randomUUID(),
+            session_id: currentSession.id,
+            role: 'assistant',
+            content: `I understand you want to create: "${content}". In a full version, I would generate a video based on your description. This is currently running in demo mode!`,
+            created_at: new Date().toISOString(),
+            metadata: {},
+          }
+          addMessage(aiResponse)
+        }, 1000)
       }
     },
-    [currentSession, user, addMessage]
+    [currentSession, addMessage]
   )
 
   const selectSession = useCallback(
@@ -137,17 +128,10 @@ export function useChatSessions() {
 
   /* ───────────────────────── EFFECTS ───────────────────────────── */
 
-  // refresh list when user logs in/out
+  // load demo sessions on mount
   useEffect(() => {
-    if (user) {
-      loadSessions()
-    } else {
-      setSessions([])
-      setCurrentSession(null)
-      setMessages([])
-      setVideos([])
-    }
-  }, [user, loadSessions, setSessions, setCurrentSession, setMessages, setVideos])
+    loadSessions()
+  }, [loadSessions])
 
   /* ───────────────────────── EXPORT API ───────────────────────── */
 
