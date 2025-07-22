@@ -9,23 +9,24 @@ export function useAuth() {
   useEffect(() => {
     let mounted = true
     
-    // Get initial user
-    const loadUser = async () => {
+    // Get initial session
+    const getInitialSession = async () => {
       try {
-        const { data: { user }, error } = await supabase.auth.getUser()
-        if (error && error.message !== 'Auth session missing!') {
-          console.error('Error loading user:', error)
-        }
+        const { data: { session }, error } = await supabase.auth.getSession()
+        if (error) throw error
         
         if (mounted) {
-          setUser(user)
-          
-          if (user) {
-            await loadUserProfile(user.id)
+          setUser(session?.user ?? null)
+          if (session?.user) {
+            await loadUserProfile(session.user.id)
           }
         }
       } catch (error) {
-        console.error('Error loading user:', error)
+        console.error('Error getting initial session:', error)
+        if (mounted) {
+          setUser(null)
+          setProfile(null)
+        }
       } finally {
         if (mounted) {
           setLoading(false)
@@ -33,8 +34,8 @@ export function useAuth() {
       }
     }
 
-    // Load user immediately
-    loadUser()
+    // Get initial session
+    getInitialSession()
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(

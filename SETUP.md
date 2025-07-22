@@ -1,172 +1,183 @@
-# Setup Guide for Real-Time Video Generator
+# 🚀 Real-Time Video Generator Setup Guide
 
-This guide will help you set up the Real-Time Video Generator on your local machine.
+This guide provides step-by-step instructions to set up and run the Real-Time Video Generator application.
 
-## Prerequisites
+## 🚨 **Critical Prerequisites**
 
+Before starting, ensure you have:
 - Node.js 18+ installed
-- npm or pnpm package manager
-- A Supabase account
-- Gemini API access
-- Fal.ai account
+- A Supabase account (free tier works)
+- Access to Gemini API (Google AI Studio)
+- Access to Fal.ai API
+- Git installed
 
-## Step-by-Step Setup
+## ⚡ **Quick Start (5 Steps)**
 
-### 1. Clone and Install
-
+### **Step 1: Clone & Install**
 ```bash
 git clone https://github.com/Anansitrading/real-time-video-generator.git
 cd real-time-video-generator
 npm install
-# or
-pnpm install
 ```
 
-### 2. Supabase Project Setup
+### **Step 2: Create Supabase Project**
+1. Go to [https://supabase.com/dashboard](https://supabase.com/dashboard)
+2. Click "New Project"
+3. Choose organization and fill project details
+4. Wait for project to be ready (2-3 minutes)
+5. **Save your project URL and anon key** (found in Settings → API)
 
-1. **Create a new Supabase project** at [supabase.com](https://supabase.com)
+### **Step 3: Configure Environment Variables**
+```bash
+# Copy the example environment file
+cp .env.example .env.local
 
-2. **Get your project credentials**:
-   - Go to Settings > API
-   - Copy your `Project URL` and `anon public` key
+# Edit .env.local with your actual Supabase credentials
+# Replace these values:
+VITE_SUPABASE_URL=https://your-project-ref.supabase.co
+VITE_SUPABASE_ANON_KEY=your_actual_anon_key_here
+```
 
-3. **Run database migrations**:
-   - Go to SQL Editor in your Supabase dashboard
-   - Copy and paste the contents of each file in `supabase/migrations/` in order:
-     - `1753144937_create_video_generator_schema.sql`
-     - `1753145008_create_video_generator_schema.sql` 
-     - `1753145022_enable_rls_and_policies.sql`
+### **Step 4: Set Up Database**
+1. Go to your Supabase Dashboard → SQL Editor
+2. Run these migration files **in order**:
 
-4. **Deploy Edge Functions**:
-   
-   If you have Supabase CLI installed:
-   ```bash
-   supabase functions deploy
-   ```
-   
-   Or manually create each function in the Supabase dashboard using the code from `supabase/functions/*/index.ts`
+**Migration 1:** Copy and execute `supabase/migrations/1753144937_create_video_generator_schema.sql`
+**Migration 2:** Copy and execute `supabase/migrations/1753145008_create_video_generator_schema.sql`  
+**Migration 3:** Copy and execute `supabase/migrations/1753145022_enable_rls_and_policies.sql`
 
-5. **Set environment variables in Supabase**:
-   - Go to Settings > Environment Variables
-   - Add these variables:
-     - `GEMINI_API_KEY` - Your Gemini API key
-     - `FAL_API_KEY` - Your Fal.ai API key
-     - `SUPABASE_SERVICE_ROLE_KEY` - Your service role key (from Settings > API)
+3. Verify tables are created:
+```sql
+SELECT table_name FROM information_schema.tables 
+WHERE table_schema = 'public';
+```
 
-### 3. API Keys Setup
+### **Step 5: Deploy Edge Functions & Get API Keys**
 
-#### Gemini API Key
+#### **Deploy Edge Functions:**
+**Option A: Using Supabase CLI (Recommended)**
+```bash
+npm install -g supabase
+supabase login
+supabase link --project-ref your-project-ref
+supabase functions deploy
+```
+
+**Option B: Manual Deployment**
+1. Go to Supabase Dashboard → Functions
+2. Create each function using code from `supabase/functions/*/index.ts`
+
+#### **Get Required API Keys:**
+
+**Gemini API Key:**
 1. Go to [Google AI Studio](https://makersuite.google.com/app/apikey)
-2. Create a new API key
-3. Make sure Gemini Live API access is enabled
+2. Create new API key
+3. Ensure you have access to Gemini Live API
 
-#### Fal.ai API Key
-1. Sign up at [fal.ai](https://fal.ai)
-2. Go to your dashboard and generate an API key
+**Fal.ai API Key:**
+1. Go to [Fal.ai Dashboard](https://fal.ai/dashboard)
+2. Sign up and get API key
 3. Ensure you have access to Veo 3 models
 
-### 4. Environment Configuration
-
-1. **Copy the environment template**:
-   ```bash
-   cp .env.example .env.local
-   ```
-
-2. **Update `.env.local`** with your actual values:
-   ```env
-   VITE_SUPABASE_URL=https://your-project.supabase.co
-   VITE_SUPABASE_ANON_KEY=your_anon_key_here
-   ```
-
-3. **Fix hardcoded Supabase URL** in `src/lib/supabase.ts`:
-   ```typescript
-   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-   const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-   ```
-
-### 5. Run the Application
-
-```bash
-npm run dev
-# or
-pnpm dev
+#### **Set Environment Variables in Supabase:**
+1. Go to Supabase Dashboard → Settings → Environment Variables
+2. Add these variables:
+```
+GEMINI_API_KEY=your_gemini_api_key
+FAL_API_KEY=your_fal_api_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 ```
 
-The application should now be running at `http://localhost:5173`
+### **Step 6: Start Development Server**
+```bash
+npm run dev
+```
 
-## Features to Test
+Visit `http://localhost:5173` to see the application!
 
-1. **Authentication**: Sign up/sign in functionality
-2. **Voice Interaction**: Click the microphone to start voice chat
-3. **Video Generation**: Describe a video and watch it generate
-4. **Chat History**: Your conversations are saved
-5. **Real-time Updates**: Messages and videos update in real-time
+## ✅ **Verification Checklist**
 
-## Troubleshooting
+Test these features to ensure everything works:
 
-### Common Issues
+- [ ] **Authentication**: Can create account and sign in
+- [ ] **Profile Creation**: User profile appears after sign in
+- [ ] **Chat Sessions**: Can create new conversation
+- [ ] **Text Messages**: Can send and receive messages
+- [ ] **Database Operations**: Messages save and load properly
+- [ ] **Edge Functions**: No console errors for function calls
+- [ ] **UI Responsiveness**: Buttons work and interface is responsive
 
-1. **Button clicks not working**: This is a known issue with the deployed version. The local version should work correctly.
+## 🐛 **Troubleshooting Common Issues**
 
-2. **Supabase connection errors**: 
-   - Verify your environment variables are correct
-   - Check that RLS policies are properly set up
-   - Ensure your API keys are valid
+### **Issue: "Missing Supabase environment variables"**
+**Solution**: Ensure `.env.local` exists with correct VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
 
-3. **Voice recording not working**:
-   - Make sure you're using HTTPS (required for microphone access)
-   - Check browser permissions for microphone access
+### **Issue: "Failed to create session" or database errors**
+**Solution**: 
+1. Verify all migrations were run successfully
+2. Check RLS policies are enabled
+3. Ensure you're signed in to the application
 
-4. **Video generation failing**:
-   - Verify your Fal.ai API key is correct
-   - Check that you have access to Veo 3 models
-   - Look at the edge function logs in Supabase
+### **Issue: "Failed to connect to voice assistant"**
+**Solution**:
+1. Check GEMINI_API_KEY is set in Supabase environment variables
+2. Verify edge functions are deployed
+3. Check browser console for specific error messages
 
-### Debugging
+### **Issue: "Video generation failed"**
+**Solution**:
+1. Check FAL_API_KEY is set in Supabase environment variables
+2. Ensure you have access to Fal.ai Veo 3 models
+3. Check if you have sufficient credits/quota
 
-1. **Check browser console** for JavaScript errors
-2. **Check Supabase logs** in the dashboard under Logs
-3. **Verify edge function logs** for backend errors
+### **Issue: Edge functions not found**
+**Solution**:
+1. Redeploy functions using `supabase functions deploy`
+2. Check function names match exactly: `chat-session-manager`, `fal-video-generate`, etc.
+3. Verify functions appear in Supabase Dashboard → Functions
 
-## Production Deployment
+## 🔒 **Security Best Practices**
+
+1. **Never commit API keys** to Git
+2. **Use environment variables** for all sensitive data
+3. **Keep .env.local** in your .gitignore file
+4. **Use service role key** only in Supabase edge functions
+5. **Regenerate keys** if accidentally exposed
+
+## 🏗️ **Production Deployment**
 
 For production deployment:
 
-1. **Build the application**:
-   ```bash
-   npm run build
-   ```
+1. **Frontend**: Deploy to Vercel, Netlify, or similar
+   - Set environment variables in deployment platform
+   - Update CORS settings in Supabase if needed
 
-2. **Deploy to your preferred platform**:
-   - Vercel (recommended)
-   - Netlify
-   - Custom server
+2. **Backend**: Edge functions are already deployed to Supabase
+   - Monitor function logs in Supabase Dashboard
+   - Set up usage alerts for API quotas
 
-3. **Update environment variables** in your deployment platform
+3. **Database**: Supabase handles hosting
+   - Set up automated backups
+   - Monitor performance metrics
 
-4. **Configure production Supabase settings**:
-   - Update CORS settings if needed
-   - Configure proper rate limiting
-   - Set up monitoring and alerts
+## 📞 **Need Help?**
 
-## Support
+If you encounter issues:
 
-If you encounter any issues:
+1. **Check browser console** for error messages
+2. **Review Supabase logs** in Dashboard → Logs
+3. **Verify API quotas** haven't been exceeded
+4. **Test edge functions** individually in Supabase Dashboard
 
-1. Check this setup guide first
-2. Look at the GitHub issues
-3. Create a new issue with detailed error information
+## 🎯 **What's Next?**
 
-## Next Steps
-
-Once you have the basic setup working:
-
-1. **Customize the UI** to match your brand
-2. **Add new video generation features**
-3. **Implement user analytics**
-4. **Set up monitoring and error tracking**
-5. **Optimize performance** for your use case
+Once everything is working:
+- Customize the UI theme and branding
+- Add more video generation models
+- Implement user settings and preferences
+- Add audio transcription features
+- Scale for production usage
 
 ---
 
-**Happy coding! 🚀**
+**🎉 Congratulations!** You now have a fully functional Real-Time Video Generator with voice interactions and AI video generation capabilities.

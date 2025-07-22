@@ -38,10 +38,12 @@ export function Button({
   }
   
   const handleClick = (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    console.log('Button clicked!', { variant, disabled, loading })
-    if (!disabled && !loading && onClick) {
+    if (disabled || loading) {
+      e.preventDefault()
+      return
+    }
+    
+    if (onClick) {
       onClick()
     }
   }
@@ -50,8 +52,6 @@ export function Button({
     <button
       type={type}
       onClick={handleClick}
-      onMouseDown={(e) => console.log('Button mousedown', e.type)}
-      onMouseUp={(e) => console.log('Button mouseup', e.type)}
       disabled={disabled || loading}
       className={clsx(
         baseClasses,
@@ -60,7 +60,6 @@ export function Button({
         (disabled || loading) && 'opacity-50 cursor-not-allowed',
         className
       )}
-      style={{ zIndex: 10, position: 'relative' }}
     >
       {loading && (
         <svg className="w-4 h-4 mr-2 animate-spin" fill="none" viewBox="0 0 24 24">

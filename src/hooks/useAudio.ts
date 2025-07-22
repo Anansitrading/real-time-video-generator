@@ -50,9 +50,17 @@ export function useAudio() {
       // Get ephemeral token from our edge function
       const { data: tokenData, error } = await supabase.functions.invoke('gemini-live-token')
       
-      if (error) throw error
+      if (error) {
+        console.error('Token error:', error)
+        throw new Error(`Failed to get token: ${error.message}`)
+      }
 
-      const token = tokenData.token
+      if (!tokenData?.data?.token) {
+        throw new Error('Invalid token response')
+      }
+
+      const token = tokenData.data.token
+      // Use the correct Gemini Live WebSocket URL format
       const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${token}`
       
       wsRef.current = new WebSocket(wsUrl)
@@ -96,7 +104,7 @@ export function useAudio() {
       
     } catch (error) {
       console.error('Failed to connect to Gemini:', error)
-      toast.error('Failed to connect to voice assistant')
+      toast.error(`Voice connection failed: ${error.message}`)
     }
   }, [isConnectedToGemini, setIsConnectedToGemini])
 
