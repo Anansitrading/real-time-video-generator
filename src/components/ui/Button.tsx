@@ -37,14 +37,30 @@ export function Button({
     lg: 'px-6 py-3 text-base rounded-xl'
   }
   
-  const handleClick = (e: React.MouseEvent) => {
+  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    // Always prevent default for disabled/loading states
     if (disabled || loading) {
       e.preventDefault()
+      e.stopPropagation()
       return
     }
     
+    // For submit buttons, let the default behavior proceed
+    if (type === 'submit') {
+      // Don't prevent default for form submissions
+      if (onClick) {
+        onClick()
+      }
+      return
+    }
+    
+    // For other button types, call onClick if provided
     if (onClick) {
-      onClick()
+      try {
+        onClick()
+      } catch (error) {
+        console.error('Button onClick error:', error)
+      }
     }
   }
   
